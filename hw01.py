@@ -15,17 +15,19 @@ def input_error(func):
             return "Not enough arguments."
         except TypeError:
             return "Invalid input."
+        except AttributeError:
+            return "Contact not found."
 
     return inner
 
 
-def is_valid_date(birthday: date, start: date, end: date) -> bool:
+def validate_date(birthday: date, start: date, end: date) -> dict:
     adjusted_birthday = birthday.replace(year=start.year)
     if adjusted_birthday < start and adjusted_birthday.year != end.year:
-        adjusted_birthday = adjusted_birthday.replace(year=end.year)
+        adjusted_birthday.replace(year=end.year)
     if start <= adjusted_birthday <= end:
-        return True
-    return False
+        return {"is_valid": True, "congratulate_date": adjusted_birthday}
+    return {"is_valid": False, "congratulate_date": None}
 
 
 class Field:
@@ -110,16 +112,22 @@ class AddressBook(UserDict):
             del self.data[name]
 
     def birthdays(self):
-        result = []
+        result = {}
         today = datetime.now().date()
         future_date = today + timedelta(days=7)
         for record in self.data.values():
             if record.birthday is None:
                 continue
-            if is_valid_date(record.birthday.value, today, future_date):
-                result.append((record.name, record.birthday.value))
-        result.sort(key=lambda item: item[1])
-        return result
+            validation_result = validate_date(record.birthday.value, today, future_date)
+            if validation_result["is_valid"]:
+                congratulate_date = validation_result["congratulate_date"]
+                if congratulate_date.weekday() == 5:
+                    congratulate_date += timedelta(days=2)
+                if congratulate_date.weekday() == 6:
+                    congratulate_date += timedelta(days=1)
+                result.setdefault(congratulate_date.strftime("%d.%m.%Y"), []).append(record.name.value)
+        sorted_result = dict(sorted(result.items(), key=lambda item: datetime.strptime(item[0], "%d.%m.%Y")))
+        return sorted_result
 
 
 @input_error
@@ -141,8 +149,6 @@ def add_contact(args, book: AddressBook):
 def change_contact(args, book):
     name, old_phone, new_phone = args
     record = book.find(name)
-    if record is None:
-        raise KeyError
     record.edit_phone(old_phone, new_phone)
     return "Phone number updated."
 
@@ -151,8 +157,6 @@ def change_contact(args, book):
 def show_phones(args, book):
     name = args[0]
     record = book.find(name)
-    if record is None:
-        raise KeyError
     phones = "; ".join(p.value for p in record.phones)
     return phones
 
@@ -168,8 +172,6 @@ def show_all(book):
 def add_birthday(args, book):
     name, birthday = args
     record = book.find(name)
-    if record is None:
-        raise KeyError
     record.add_birthday(birthday)
     return "Birthday added."
 
@@ -178,8 +180,6 @@ def add_birthday(args, book):
 def show_birthday(args, book):
     name = args[0]
     record = book.find(name)
-    if record is None:
-        raise KeyError
     if not record.birthday:
         return "No birthday set."
     return record.birthday.value.strftime("%d.%m.%Y")
@@ -190,10 +190,12 @@ def birthdays(book):
     upcoming = book.birthdays()
     if not upcoming:
         return "No birthdays in the next 7 days."
-    return "\n".join(f"{name}: {date}" for name, date in upcoming)
+    return "\n".join(f"{key}: {value}" for key, value in upcoming.items())
 
-
+@input_error
 def parse_input(user_input):
+    if not user_input:
+        raise TypeError
     parts = user_input.split()
     return parts[0].lower(), parts[1:]
 
